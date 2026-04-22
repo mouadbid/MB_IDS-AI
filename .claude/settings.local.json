@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(conda run *)",
+      "Read(//c/Users/Ayoub/anaconda3/envs/**)",
+      "Read(//c/ProgramData/anaconda3/**)",
+      "Read(//c/Users/Ayoub/AppData/Local/anaconda3/**)",
+      "Bash($PYML *)",
+      "Bash(/c/Users/Ayoub/anaconda3/envs/ml/python.exe *)",
+      "Bash(cmd.exe *)",
+      "WebSearch",
+      "Bash(/c/Users/Ayoub/anaconda3/envs/MachineLearning/python.exe -m pip install fastapi \"uvicorn[standard]\" scapy jinja2)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(pip show *)",
+      "Bash(C:\\\\Users\\\\Ayoub\\\\anaconda3\\\\envs\\\\MachineLearning\\\\python.exe *)",
+      "Bash(set PYTHONIOENCODING=utf-8)",
+      "Bash(\"C:\\\\Users\\\\Ayoub\\\\anaconda3\\\\envs\\\\MachineLearning\\\\python.exe\" -X utf8 \"C:\\\\Users\\\\Ayoub\\\\Documents\\\\ESTC\\\\Ridouani\\\\realtime_ids_app\\\\test_model_fixes.py\")"
+    ]
+  }
+}

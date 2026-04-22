@@ -1,0 +1,4 @@
+*/*/node_modules
+realtime_ids_app\frontend\node_modules
+*.csv
+*.npy

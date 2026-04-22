@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IDS Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { font-family: 'Inter', 'Segoe UI', sans-serif; }
+    .sidebar-link { transition: all 0.15s; }
+    .sidebar-link:hover, .sidebar-link.active { background: rgba(255,255,255,0.12); }
+    .card-shadow { box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+    .alert-row { transition: background 0.2s; }
+    .alert-row:hover { background: #f8f9fa; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+    #alertTable tbody tr:first-child { animation: fadeIn 0.3s; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+  </style>
+</head>
+<body class="bg-gray-50 flex h-screen overflow-hidden">
+
+<!-- ═══════════════════ SIDEBAR ═══════════════════ -->
+<aside class="w-56 bg-slate-800 text-white flex flex-col flex-shrink-0 h-full">
+  <!-- Logo -->
+  <div class="px-5 py-5 border-b border-slate-700">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-lg">🛡</div>
+      <div>
+        <div class="font-bold text-sm">NetIDS</div>
+        <div class="text-xs text-slate-400">Intrusion Detection</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="flex-1 px-3 py-4 space-y-1">
+    <p class="text-xs text-slate-500 uppercase tracking-wider px-2 mb-2">Main Menu</p>
+
+    <button onclick="setView('general')" id="nav-general"
+      class="sidebar-link active w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left">
+      <span>📊</span> Dashboard
+    </button>
+
+    <button onclick="setView('juiceshop')" id="nav-juiceshop"
+      class="sidebar-link w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left">
+      <span>🧃</span> Juice Shop
+    </button>
+
+    <button onclick="setView('blocked')" id="nav-blocked"
+      class="sidebar-link w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left">
+      <span>🚫</span> Blocked IPs
+    </button>
+  </nav>
+
+  <!-- Status indicator -->
+  <div class="px-4 py-4 border-t border-slate-700">
+    <div class="flex items-center gap-2 text-xs">
+      <div id="statusDot" class="w-2 h-2 rounded-full bg-gray-500"></div>
+      <span id="statusText" class="text-slate-400">Stopped</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══════════════════ MAIN ═══════════════════ -->
+<main class="flex-1 flex flex-col overflow-hidden">
+
+  <!-- Top bar -->
+  <header class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
+    <div>
+      <h1 id="viewTitle" class="text-base font-semibold text-gray-800">Network IDS — Dashboard</h1>
+      <p id="viewSubtitle" class="text-xs text-gray-400">All network interfaces</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex items-center gap-3">
+      <select id="ifaceSelect"
+        class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="">Loading interfaces…</option>
+      </select>
+      <input id="jsPort" type="number" value="3000" placeholder="JS Port"
+        class="text-sm border border-gray-200 rounded-lg px-2 py-1.5 w-20 text-center focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+      <button id="btnStart" onclick="startCapture()"
+        class="bg-green-500 hover:bg-green-600 text-white text-sm px-4 py-1.5 rounded-lg font-medium transition">
+        ▶ Start
+      </button>
+      <button id="btnStop" onclick="stopCapture()" disabled
+        class="bg-red-400 text-white text-sm px-4 py-1.5 rounded-lg font-medium opacity-50 cursor-not-allowed transition">
+        ■ Stop
+      </button>
+    </div>
+  </header>
+
+  <!-- Content area -->
+  <div class="flex-1 overflow-y-auto p-6">
+
+    <!-- ───── GENERAL DASHBOARD VIEW ───── -->
+    <div id="view-general">
+
+      <!-- Stat cards -->
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-yellow-50 rounded-2xl p-5 card-shadow border border-yellow-100">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-xs text-yellow-700 font-medium mb-1">Packets Captured</p>
+              <p id="g-packets" class="text-3xl font-bold text-yellow-700">0</p>
+            </div>
+            <span class="text-2xl">📦</span>
+          </div>
+          <p class="text-xs text-yellow-600 mt-2">Flows analyzed: <span id="g-flows" class="font-semibold">0</span></p>
+        </div>
+
+        <div class="bg-pink-50 rounded-2xl p-5 card-shadow border border-pink-100">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-xs text-pink-700 font-medium mb-1">Attacks Detected</p>
+              <p id="g-attacks" class="text-3xl font-bold text-pink-700">0</p>
+            </div>
+            <span class="text-2xl">⚠️</span>
+          </div>
+          <p class="text-xs text-pink-600 mt-2">Live threat alerts</p>
+        </div>
+
+        <div class="bg-purple-50 rounded-2xl p-5 card-shadow border border-purple-100">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-xs text-purple-700 font-medium mb-1">Attack Rate</p>
+              <p id="g-rate" class="text-3xl font-bold text-purple-700">0%</p>
+            </div>
+            <span class="text-2xl">📈</span>
+          </div>
+          <p class="text-xs text-purple-600 mt-2">% of flows flagged</p>
+        </div>
+      </div>
+
+      <!-- Charts row -->
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-2xl p-5 card-shadow">
+          <h3 class="text-sm font-semibold text-gray-700 mb-3">Attacks per Second</h3>
+          <canvas id="g-timeline-chart" height="120"></canvas>
+        </div>
+        <div class="bg-white rounded-2xl p-5 card-shadow">
+          <h3 class="text-sm font-semibold text-gray-700 mb-3">Attack Type Breakdown</h3>
+          <canvas id="g-donut-chart" height="120"></canvas>
+        </div>
+      </div>
+
+      <!-- Alert table -->
+      <div class="bg-white rounded-2xl card-shadow overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+          <h3 class="text-sm font-semibold text-gray-700">Live Alert Feed</h3>
+          <span class="text-xs text-gray-400">Last 50 flows</span>
+        </div>
+        <div class="overflow-y-auto" style="max-height:300px">
+          <table class="w-full text-xs" id="alertTable">
+            <thead class="bg-gray-50 sticky top-0">
+              <tr class="text-gray-500 text-left">
+                <th class="px-4 py-2 font-medium">Time</th>
+                <th class="px-4 py-2 font-medium">Attack Type</th>
+                <th class="px-4 py-2 font-medium">Source IP</th>
+                <th class="px-4 py-2 font-medium">Destination</th>
+                <th class="px-4 py-2 font-medium">Confidence</th>
+                <th class="px-4 py-2 font-medium">Action</th>
+              </tr>
+            </thead>
+            <tbody id="g-alerts-body">
+              <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">Waiting for traffic…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───── JUICE SHOP VIEW ───── -->
+    <div id="view-juiceshop" class="hidden">
+
+      <!-- Stat cards -->
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-orange-50 rounded-2xl p-4 card-shadow border border-orange-100">
+          <p class="text-xs text-orange-700 font-medium mb-1">HTTP Requests</p>
+          <p id="js-requests" class="text-2xl font-bold text-orange-700">0</p>
+        </div>
+        <div class="bg-red-50 rounded-2xl p-4 card-shadow border border-red-100">
+          <p class="text-xs text-red-700 font-medium mb-1">Attacks Detected</p>
+          <p id="js-attacks" class="text-2xl font-bold text-red-700">0</p>
+        </div>
+        <div class="bg-purple-50 rounded-2xl p-4 card-shadow border border-purple-100">
+          <p class="text-xs text-purple-700 font-medium mb-1">Attack Rate</p>
+          <p id="js-rate" class="text-2xl font-bold text-purple-700">0%</p>
+        </div>
+        <div class="bg-slate-50 rounded-2xl p-4 card-shadow border border-slate-200">
+          <p class="text-xs text-slate-600 font-medium mb-1">Blocked IPs</p>
+          <p id="js-blocked-count" class="text-2xl font-bold text-slate-700">0</p>
+        </div>
+      </div>
+
+      <!-- Charts row -->
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-2xl p-5 card-shadow">
+          <h3 class="text-sm font-semibold text-gray-700 mb-3">Attacks Against Juice Shop</h3>
+          <canvas id="js-timeline-chart" height="120"></canvas>
+        </div>
+        <div class="bg-white rounded-2xl p-5 card-shadow">
+          <h3 class="text-sm font-semibold text-gray-700 mb-3">Attack Type Distribution</h3>
+          <canvas id="js-donut-chart" height="120"></canvas>
+        </div>
+      </div>
+
+      <!-- Juice Shop alert table -->
+      <div class="bg-white rounded-2xl card-shadow overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+          <h3 class="text-sm font-semibold text-gray-700">Juice Shop Attack Feed</h3>
+          <span class="text-xs text-gray-400">port 3000 only</span>
+        </div>
+        <div class="overflow-y-auto" style="max-height:300px">
+          <table class="w-full text-xs">
+            <thead class="bg-gray-50 sticky top-0">
+              <tr class="text-gray-500 text-left">
+                <th class="px-4 py-2 font-medium">Time</th>
+                <th class="px-4 py-2 font-medium">Attack Type</th>
+                <th class="px-4 py-2 font-medium">Source IP</th>
+                <th class="px-4 py-2 font-medium">Destination</th>
+                <th class="px-4 py-2 font-medium">Confidence</th>
+                <th class="px-4 py-2 font-medium">Block</th>
+              </tr>
+            </thead>
+            <tbody id="js-alerts-body">
+              <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">No Juice Shop attacks detected yet…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───── BLOCKED IPS VIEW ───── -->
+    <div id="view-blocked" class="hidden">
+      <div class="bg-white rounded-2xl card-shadow overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+          <h3 class="text-sm font-semibold text-gray-700">Blocked IP Addresses</h3>
+          <span class="text-xs text-gray-400">Windows Firewall rules</span>
+        </div>
+        <div class="overflow-y-auto" style="max-height:500px">
+          <table class="w-full text-xs">
+            <thead class="bg-gray-50 sticky top-0">
+              <tr class="text-gray-500 text-left">
+                <th class="px-4 py-2 font-medium">IP Address</th>
+                <th class="px-4 py-2 font-medium">Action</th>
+              </tr>
+            </thead>
+            <tbody id="blocked-body">
+              <tr><td colspan="2" class="px-4 py-6 text-center text-gray-400">No IPs blocked.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end content -->
+</main>
+
+<!-- ═══════════════════ SCRIPTS ═══════════════════ -->
+<script>
+// ── View switching ─────────────────────────────────────────────────────────
+const VIEWS = ['general', 'juiceshop', 'blocked'];
+function setView(v) {
+  VIEWS.forEach(id => {
+    document.getElementById('view-' + id).classList.toggle('hidden', id !== v);
+    document.getElementById('nav-' + id)?.classList.toggle('active', id === v);
+  });
+  const titles = {
+    general:   ['Network IDS — Dashboard', 'All network traffic'],
+    juiceshop: ['Juice Shop Monitor', 'Traffic on port 3000'],
+    blocked:   ['Blocked IPs', 'Windows Firewall rules'],
+  };
+  document.getElementById('viewTitle').textContent    = titles[v][0];
+  document.getElementById('viewSubtitle').textContent = titles[v][1];
+}
+
+// ── Load interfaces ────────────────────────────────────────────────────────
+async function loadInterfaces() {
+  const res = await fetch('/api/interfaces').then(r => r.json());
+  const sel = document.getElementById('ifaceSelect');
+  sel.innerHTML = '';
+  (res.interfaces || []).forEach((iface, i) => {
+    const opt = document.createElement('option');
+    opt.value = iface.value || iface;
+    const label = iface.label || iface.value || iface;
+    opt.textContent = label.length > 40 ? label.slice(0, 40) + '…' : label;
+    sel.appendChild(opt);
+  });
+}
+
+// ── Start / Stop ───────────────────────────────────────────────────────────
+async function startCapture() {
+  const iface = document.getElementById('ifaceSelect').value;
+  const port  = parseInt(document.getElementById('jsPort').value) || 3000;
+  if (!iface) { alert('Select a network interface.'); return; }
+  const res = await fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({interface: iface, juiceshop_port: port})
+  }).then(r => r.json());
+  if (res.ok) {
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnStart').classList.add('opacity-50', 'cursor-not-allowed');
+    document.getElementById('btnStop').disabled = false;
+    document.getElementById('btnStop').classList.remove('opacity-50', 'cursor-not-allowed');
+    setRunning(true);
+  } else {
+    alert('Error: ' + res.msg);
+  }
+}
+
+async function stopCapture() {
+  await fetch('/api/stop', {method: 'POST'});
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStart').classList.remove('opacity-50', 'cursor-not-allowed');
+  document.getElementById('btnStop').disabled = true;
+  document.getElementById('btnStop').classList.add('opacity-50', 'cursor-not-allowed');
+  setRunning(false);
+}
+
+function setRunning(on) {
+  const dot  = document.getElementById('statusDot');
+  const txt  = document.getElementById('statusText');
+  dot.className = 'w-2 h-2 rounded-full ' + (on ? 'bg-green-400 animate-pulse' : 'bg-gray-500');
+  txt.textContent = on ? 'Monitoring' : 'Stopped';
+}
+
+// ── Block / Unblock ────────────────────────────────────────────────────────
+async function blockIP(ip) {
+  await fetch('/api/block', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ip})
+  });
+}
+async function unblockIP(ip) {
+  await fetch('/api/unblock', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ip})
+  });
+}
+
+// ── Charts ─────────────────────────────────────────────────────────────────
+const CHART_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#14b8a6'];
+
+function makeLineChart(id) {
+  return new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: {labels: [], datasets: [{
+      label: 'Attacks',
+      data: [],
+      backgroundColor: 'rgba(239,68,68,0.15)',
+      borderColor: '#ef4444',
+      borderWidth: 2,
+      borderRadius: 4,
+      tension: 0.4,
+    }]},
+    options: {
+      animation: false,
+      plugins: {legend: {display: false}},
+      scales: {
+        x: {grid: {display: false}, ticks: {font: {size: 9}}},
+        y: {beginAtZero: true, grid: {color: '#f3f4f6'}, ticks: {font: {size: 9}, precision: 0}}
+      }
+    }
+  });
+}
+
+function makeDonutChart(id) {
+  return new Chart(document.getElementById(id), {
+    type: 'doughnut',
+    data: {labels: [], datasets: [{data: [], backgroundColor: CHART_COLORS, borderWidth: 2}]},
+    options: {
+      animation: false,
+      cutout: '60%',
+      plugins: {legend: {position: 'right', labels: {font: {size: 10}, boxWidth: 10}}},
+    }
+  });
+}
+
+const charts = {
+  gTimeline: makeLineChart('g-timeline-chart'),
+  gDonut:    makeDonutChart('g-donut-chart'),
+  jsTimeline: makeLineChart('js-timeline-chart'),
+  jsDonut:    makeDonutChart('js-donut-chart'),
+};
+
+function updateLineChart(chart, timeline) {
+  chart.data.labels   = timeline.map(t => t.label);
+  chart.data.datasets[0].data = timeline.map(t => t.count);
+  chart.update('none');
+}
+
+function updateDonutChart(chart, attack_types) {
+  const labels = Object.keys(attack_types);
+  const data   = Object.values(attack_types);
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = data;
+  chart.update('none');
+}
+
+// ── Alert rows ─────────────────────────────────────────────────────────────
+function alertRow(a, showBlock = true) {
+  const isAttack = a.is_attack;
+  const bg = isAttack
+    ? (a.confidence > 90 ? 'bg-red-50' : 'bg-yellow-50')
+    : '';
+  const badge = isAttack
+    ? `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">${a.attack}</span>`
+    : `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">BENIGN</span>`;
+  const conf = isAttack
+    ? `<span class="font-semibold text-red-600">${a.confidence}%</span>`
+    : `<span class="text-gray-400">-</span>`;
+  const blockBtn = (showBlock && isAttack)
+    ? `<button onclick="blockIP('${a.src_ip}')" class="px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition">Block</button>`
+    : '';
+  return `<tr class="alert-row border-b border-gray-50 ${bg}">
+    <td class="px-4 py-2 text-gray-500">${a.time}</td>
+    <td class="px-4 py-2">${badge}</td>
+    <td class="px-4 py-2 font-mono text-gray-700">${a.src_ip}</td>
+    <td class="px-4 py-2 font-mono text-gray-600">${a.dst_ip}:${a.dst_port}</td>
+    <td class="px-4 py-2">${conf}</td>
+    <td class="px-4 py-2">${blockBtn}</td>
+  </tr>`;
+}
+
+function renderAlerts(bodyId, alerts, showBlock = true) {
+  const tbody = document.getElementById(bodyId);
+  if (!alerts || alerts.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">No data yet…</td></tr>';
+    return;
+  }
+  tbody.innerHTML = alerts.map(a => alertRow(a, showBlock)).join('');
+}
+
+function renderBlocked(ips) {
+  const tbody = document.getElementById('blocked-body');
+  if (!ips || ips.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="2" class="px-4 py-6 text-center text-gray-400">No IPs blocked.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = ips.map(ip => `
+    <tr class="border-b border-gray-50">
+      <td class="px-4 py-3 font-mono text-gray-700">${ip}</td>
+      <td class="px-4 py-3">
+        <button onclick="unblockIP('${ip}')" class="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded text-xs transition">Unblock</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (!d.running) return;
+
+    // General stats
+    const g = d.general;
+    document.getElementById('g-packets').textContent = g.stats.packets.toLocaleString();
+    document.getElementById('g-flows').textContent   = g.stats.flows.toLocaleString();
+    document.getElementById('g-attacks').textContent = g.stats.attacks.toLocaleString();
+    document.getElementById('g-rate').textContent    = g.stats.rate + '%';
+    updateLineChart(charts.gTimeline, g.timeline);
+    updateDonutChart(charts.gDonut, g.attack_types);
+    renderAlerts('g-alerts-body', g.alerts);
+
+    // Juice Shop stats
+    const j = d.juiceshop;
+    document.getElementById('js-requests').textContent     = j.stats.requests?.toLocaleString() ?? 0;
+    document.getElementById('js-attacks').textContent      = j.stats.attacks.toLocaleString();
+    document.getElementById('js-rate').textContent         = j.stats.rate + '%';
+    document.getElementById('js-blocked-count').textContent = (d.blocked_ips || []).length;
+    updateLineChart(charts.jsTimeline, j.timeline);
+    updateDonutChart(charts.jsDonut, j.attack_types);
+    renderAlerts('js-alerts-body', j.alerts);
+
+    // Blocked IPs
+    renderBlocked(d.blocked_ips);
+  };
+
+  ws.onclose = () => setTimeout(connect, 2000);  // auto-reconnect
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+loadInterfaces();
+connect();
+</script>
+</body>
+</html>
