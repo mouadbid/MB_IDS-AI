@@ -138,6 +138,7 @@ export default function App() {
             wsConnected={wsConnected}
             controls={controls}
             recentFlows={wsData?.recent_flows || []}
+            recentPackets={wsData?.recent_packets || []}
           />
         ) : (
           <AttackPanel jsPort={jsPort} />

@@ -320,6 +320,8 @@ class IDSEngine:
         self._js_tick_attacks = 0
         self._last_tick = time.time()
         self.recent_flows: deque = deque(maxlen=100)  # all flows (benign + attack)
+        self.recent_packets: deque = deque(maxlen=200)  # raw per-packet log
+        self._pkt_seq = 0  # monotonic packet counter
         self.raw_flow_features: deque = deque(maxlen=50)  # raw feature dicts for re-analysis
 
         self.on_alert = None
@@ -378,9 +380,11 @@ class IDSEngine:
     def _on_packet(self, pkt):
         with self.lock:
             self.stats['general']['packets'] += 1
+            self._pkt_seq += 1
+            seq = self._pkt_seq
             # Count Juice Shop traffic
             try:
-                from scapy.layers.inet import TCP
+                from scapy.layers.inet import IP, TCP, UDP
                 if pkt.haslayer(TCP):
                     sp = pkt[TCP].sport
                     dp = pkt[TCP].dport
@@ -388,6 +392,39 @@ class IDSEngine:
                         self.stats['juiceshop']['requests'] += 1
             except Exception:
                 pass
+
+            # Record raw packet summary
+            try:
+                from scapy.layers.inet import IP, TCP, UDP
+                ts_str = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                proto_num = pkt[IP].proto if pkt.haslayer(IP) else 0
+                proto_name = {6: 'TCP', 17: 'UDP', 1: 'ICMP'}.get(proto_num, str(proto_num))
+                src_ip  = pkt[IP].src if pkt.haslayer(IP) else '?'
+                dst_ip  = pkt[IP].dst if pkt.haslayer(IP) else '?'
+                src_port = dst_port = 0
+                if pkt.haslayer(TCP):
+                    src_port, dst_port = pkt[TCP].sport, pkt[TCP].dport
+                elif pkt.haslayer(UDP):
+                    src_port, dst_port = pkt[UDP].sport, pkt[UDP].dport
+                pkt_entry = {
+                    'no':       seq,
+                    'time':     ts_str,
+                    'src':      src_ip,
+                    'src_port': src_port,
+                    'dst':      dst_ip,
+                    'dst_port': dst_port,
+                    'proto':    proto_name,
+                    'length':   len(pkt),
+                }
+            except Exception:
+                pkt_entry = {
+                    'no': seq,
+                    'time': datetime.now().strftime('%H:%M:%S'),
+                    'src': '?', 'src_port': 0,
+                    'dst': '?', 'dst_port': 0,
+                    'proto': '?', 'length': 0,
+                }
+            self.recent_packets.appendleft(pkt_entry)
 
         completed = self.aggregator.process_packet(pkt)
         for flow in completed:
@@ -521,11 +558,30 @@ class IDSEngine:
     def inject_synthetic_flow(self, attack_data):
         import random
         attack_type = attack_data.get('type')
-        
+
+        # Inject synthetic packets into the packet log
+        with self.lock:
+            self.stats['general']['packets'] += 1
+            self._pkt_seq += 1
+            seq = self._pkt_seq
+            src_port = random.randint(10000, 60000)
+            ts_str = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            pkt_entry = {
+                'no':       seq,
+                'time':     ts_str,
+                'src':      '127.0.0.1',
+                'src_port': src_port,
+                'dst':      '127.0.0.1',
+                'dst_port': self.juiceshop_port,
+                'proto':    'TCP',
+                'length':   random.randint(60, 1500),
+            }
+            self.recent_packets.appendleft(pkt_entry)
+
         flow_dict = {
             '_src_ip': '127.0.0.1',
             '_dst_ip': '127.0.0.1',
-            '_src_port': random.randint(10000, 60000),
+            '_src_port': src_port,
             '_dst_port': self.juiceshop_port,
             '_proto': 6,
         }
@@ -586,4 +642,5 @@ class IDSEngine:
                     'attack_types': dict(self._attack_type_counts),
                 },
                 'recent_flows': list(self.recent_flows),
+                'recent_packets': list(self.recent_packets)[:100],
             }
