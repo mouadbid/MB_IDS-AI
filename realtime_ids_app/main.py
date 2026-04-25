@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -21,10 +21,9 @@ def check_admin():
     except Exception:
         return os.getuid() == 0
 
-
 if not check_admin():
-    print("ERROR: Run as Administrator (required for packet capture + firewall).")
-    sys.exit(1)
+    print("WARNING: Not running as Administrator. Packet capture or firewall blocking may fail.")
+    # sys.exit(1)
 
 init_db()
 
@@ -55,9 +54,12 @@ class IPRequest(BaseModel):
 
 @app.get("/api/interfaces")
 async def get_interfaces():
+    result = []
+    errors = []
+
+    # ── Primary: Scapy IFACES (requires Npcap / admin on Windows) ──
     try:
         from scapy.all import IFACES, get_if_list
-        result = []
         for dev, iface in IFACES.items():
             name = (
                 getattr(iface, "description", "")
@@ -68,9 +70,30 @@ async def get_interfaces():
         if not result:
             for dev in get_if_list():
                 result.append({"value": dev, "label": dev})
-        return {"interfaces": result}
     except Exception as e:
-        return {"interfaces": [], "error": str(e)}
+        errors.append(f"scapy: {e}")
+
+    # ── Fallback: psutil (always available, no admin required) ──────
+    if not result:
+        try:
+            import psutil
+            for name, addrs in psutil.net_if_addrs().items():
+                # Build a friendly label
+                label = name
+                if name in ("lo", "lo0", "Loopback Pseudo-Interface 1") or name.startswith("lo"):
+                    label = f"{name} (Loopback)"
+                result.append({"value": name, "label": label})
+        except Exception as e:
+            errors.append(f"psutil: {e}")
+
+    # ── Last resort: known Windows loopback names ───────────────────
+    if not result:
+        result = [
+            {"value": "lo",  "label": "lo (Loopback)"},
+            {"value": "eth0","label": "eth0"},
+        ]
+
+    return {"interfaces": result, "errors": errors if errors else None}
 
 
 @app.get("/api/status")
@@ -111,6 +134,86 @@ async def stop_capture():
     active_interface = None
     return {"ok": True}
 
+
+@app.get("/api/suggest")
+async def suggest():
+    """Re-run stored raw flow features through the model and return a rich analysis."""
+    if not engine:
+        return {"ok": False, "msg": "Engine not started. Start capture first."}
+
+    import numpy as np
+    raw = list(engine.raw_flow_features)
+    if not raw:
+        return {"ok": False, "msg": "No flows captured yet. Launch an attack first."}
+
+    results = []
+    for fd in raw:
+        row = []
+        for feat in engine.features:
+            val = fd.get(feat, 0.0)
+            try:
+                val = float(val)
+            except (ValueError, TypeError):
+                val = 0.0
+            if not np.isfinite(val):
+                val = 0.0
+            row.append(val)
+
+        X = np.array(row, dtype=np.float32).reshape(1, -1)
+        X_scaled = engine.scaler.transform(X)
+        X_scaled = np.clip(X_scaled, -3.0, 3.0)
+
+        confidence = float(engine.xgb_binary.predict_proba(X_scaled)[0][1])
+        is_attack = confidence > 0.10
+        label = "BENIGN"
+        if is_attack:
+            idx = engine.xgb_multi.predict(X_scaled)[0]
+            label = engine.le.inverse_transform([idx])[0]
+
+        # Top 5 contributing features (absolute scaled values)
+        feat_vals = list(zip(engine.features, X_scaled[0].tolist()))
+        top_feats = sorted(feat_vals, key=lambda x: abs(x[1]), reverse=True)[:5]
+
+        results.append({
+            "label": label,
+            "confidence": round(confidence * 100, 1),
+            "is_attack": is_attack,
+            "stored_label": fd.get("_label", "?"),
+            "top_features": [{"name": k, "score": round(v, 3)} for k, v in top_feats],
+            # key raw values for display
+            "flow_duration_ms": round(fd.get("Flow Duration", 0) / 1000, 2),
+            "total_packets": int(fd.get("Total Fwd Packets", 0)) + int(fd.get("Total Backward Packets", 0)),
+            "total_bytes": int(fd.get("Total Length of Fwd Packets", 0)) + int(fd.get("Total Length of Bwd Packets", 0)),
+            "pkt_rate": round(fd.get("Flow Packets/s", 0), 1),
+            "byte_rate": round(fd.get("Flow Bytes/s", 0), 1),
+        })
+
+    # Aggregate: pick most common attack label
+    from collections import Counter
+    attack_results = [r for r in results if r["is_attack"]]
+    label_counts = Counter(r["label"] for r in attack_results)
+    top_label = label_counts.most_common(1)[0][0] if label_counts else "BENIGN"
+    avg_conf = round(sum(r["confidence"] for r in results) / len(results), 1) if results else 0
+
+    return {
+        "ok": True,
+        "summary": {
+            "total_flows": len(results),
+            "attack_flows": len(attack_results),
+            "benign_flows": len(results) - len(attack_results),
+            "dominant_attack": top_label,
+            "avg_confidence": avg_conf,
+            "attack_breakdown": dict(label_counts),
+        },
+        "flows": results[:20],
+    }
+
+@app.post("/api/inject_flow")
+async def inject_flow(req: Request):
+    data = await req.json()
+    if engine and is_running:
+        engine.inject_synthetic_flow(data)
+    return {"ok": True}
 
 @app.post("/api/block")
 async def block(req: IPRequest):
@@ -169,5 +272,5 @@ async def websocket_endpoint(ws: WebSocket):
 
 if __name__ == "__main__":
     print("IDS API running at http://localhost:8000")
-    print("Start frontend: cd frontend && npm run dev  →  http://localhost:5173")
+    print("Start frontend: cd frontend && npm run dev  ->  http://localhost:5173")
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")

@@ -1,24 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import Sidebar from './components/Sidebar'
-import Dashboard from './views/Dashboard'
-import JuiceShop from './views/JuiceShop'
-import BlockedIPs from './views/BlockedIPs'
 import AttackPanel from './views/AttackPanel'
+import Defender from './views/Defender'
+import { Sword, Shield, Wifi, WifiOff } from 'lucide-react'
 
 const WS_URL = `ws://${window.location.host}/ws`
 
 export default function App() {
-  const [mode, setMode] = useState('ids')           // 'ids' | 'attack'
-  const [view, setView] = useState('dashboard')
+  const [mode, setMode] = useState('defender')   // 'attacker' | 'defender'
   const [wsData, setWsData] = useState(null)
   const [wsConnected, setWsConnected] = useState(false)
   const [interfaces, setInterfaces] = useState([])
   const [ifacesLoading, setIfacesLoading] = useState(true)
   const [selectedIface, setSelectedIface] = useState('')
-  const [jsPort, setJsPort] = useState(3000)
+  const [jsPort, setJsPort] = useState(4000)
   const [isRunning, setIsRunning] = useState(false)
   const [simMode, setSimMode] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const wsRef = useRef(null)
   const reconnRef = useRef(null)
 
@@ -37,18 +33,7 @@ export default function App() {
       }
     }
     connect()
-    return () => {
-      clearTimeout(reconnRef.current)
-      wsRef.current?.close()
-    }
-  }, [])
-
-  // Auto-collapse sidebar on narrow screens
-  useEffect(() => {
-    const check = () => setSidebarCollapsed(window.innerWidth < 768)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
+    return () => { clearTimeout(reconnRef.current); wsRef.current?.close() }
   }, [])
 
   // Load interfaces
@@ -67,7 +52,7 @@ export default function App() {
 
   useEffect(() => { loadInterfaces() }, [])
 
-  // Sync initial running state from REST (handles page refresh while backend is running)
+  // Sync state from REST on mount
   useEffect(() => {
     fetch('/api/status').then(r => r.json()).then(d => {
       setIsRunning(d.running === true)
@@ -75,7 +60,7 @@ export default function App() {
     }).catch(() => {})
   }, [])
 
-  // Sync running state from WS (live updates)
+  // Sync from WebSocket
   useEffect(() => {
     if (wsData != null) setIsRunning(wsData.running === true)
   }, [wsData?.running])
@@ -96,111 +81,68 @@ export default function App() {
     setIsRunning(false)
   }
 
-  const blockIP = async (ip) => {
-    await fetch('/api/block', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ip }),
-    })
-  }
-
-  const unblockIP = async (ip) => {
-    await fetch('/api/unblock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ip }),
-    })
-  }
-
-  const controls = {
-    interfaces,
-    ifacesLoading,
-    loadInterfaces,
-    selectedIface,
-    setSelectedIface,
-    jsPort,
-    setJsPort,
-    isRunning,
-    startCapture,
-    stopCapture,
-    simMode,
-    setSimMode,
-  }
-
-  const blockedIPs = wsData?.juiceshop?.blocked_ips || wsData?.blocked_ips || []
+  const controls = { interfaces, ifacesLoading, loadInterfaces, selectedIface, setSelectedIface, jsPort, setJsPort, isRunning, startCapture, stopCapture, simMode, setSimMode }
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-      <Sidebar
-        view={view}
-        setView={setView}
-        mode={mode}
-        isRunning={isRunning}
-        wsConnected={wsConnected}
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(v => !v)}
-      />
-
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Mode toggle bar */}
-        <div className="flex-shrink-0 bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-4">
-          <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1">
-            <button
-              onClick={() => setMode('ids')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                mode === 'ids'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              IDS Monitor
-            </button>
-            <button
-              onClick={() => setMode('attack')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                mode === 'attack'
-                  ? 'bg-red-500 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Attack Simulator
-            </button>
-          </div>
-
-          {isRunning && mode === 'ids' && (
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">Live</span>
-            </div>
-          )}
-
-          {mode === 'attack' && !isRunning && (
-            <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-lg">
-              <span className="font-semibold">Tip:</span>
-              Start IDS capture first to detect attacks in real-time
-            </div>
-          )}
+    <div className="flex h-screen bg-slate-950 font-sans overflow-hidden">
+      {/* ── Sidebar ── */}
+      <aside className="w-20 flex-shrink-0 flex flex-col items-center py-6 gap-4 bg-slate-900 border-r border-slate-800">
+        {/* Logo */}
+        <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center mb-4">
+          <span className="text-white text-xs font-black">IDS</span>
         </div>
 
-        {/* Content */}
-        <main className="flex-1 overflow-y-auto">
-          {mode === 'attack' ? (
-            <AttackPanel />
-          ) : (
-            <>
-              {view === 'dashboard' && (
-                <Dashboard data={wsData?.general} controls={controls} onBlock={blockIP} />
-              )}
-              {view === 'juiceshop' && (
-                <JuiceShop data={wsData?.juiceshop} onBlock={blockIP} />
-              )}
-              {view === 'blocked' && (
-                <BlockedIPs blockedIPs={blockedIPs} onUnblock={unblockIP} />
-              )}
-            </>
-          )}
-        </main>
-      </div>
+        {/* Defender */}
+        <button
+          onClick={() => setMode('defender')}
+          title="Defender"
+          className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all text-xs font-semibold ${
+            mode === 'defender'
+              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Shield size={20} />
+          <span className="text-[10px]">Defender</span>
+        </button>
+
+        {/* Attacker */}
+        <button
+          onClick={() => setMode('attacker')}
+          title="Attacker"
+          className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all text-xs font-semibold ${
+            mode === 'attacker'
+              ? 'bg-red-600 text-white shadow-lg shadow-red-900'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Sword size={20} />
+          <span className="text-[10px]">Attacker</span>
+        </button>
+
+        {/* Spacer + status */}
+        <div className="flex-1" />
+        <div className="flex flex-col items-center gap-1.5">
+          {wsConnected
+            ? <Wifi size={14} className="text-green-400" />
+            : <WifiOff size={14} className="text-slate-600" />}
+          {isRunning && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
+        </div>
+      </aside>
+
+      {/* ── Main content ── */}
+      <main className="flex-1 overflow-y-auto">
+        {mode === 'defender' ? (
+          <Defender
+            wsData={wsData}
+            wsConnected={wsConnected}
+            controls={controls}
+            recentFlows={wsData?.recent_flows || []}
+          />
+        ) : (
+          <AttackPanel jsPort={jsPort} />
+        )}
+      </main>
     </div>
   )
 }

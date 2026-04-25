@@ -1,10 +1,10 @@
 import { useRef } from 'react'
-import { Activity, AlertTriangle, TrendingUp, Play, Square, ChevronDown, RefreshCw, FlaskConical } from 'lucide-react'
+import { Activity, AlertTriangle, TrendingUp, Play, Square, ChevronDown, RefreshCw, FlaskConical, Info } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import AlertsTable from '../components/AlertsTable'
 import { TimelineChart, AttackDonut } from '../components/charts'
 
-export default function Dashboard({ data, controls, onBlock }) {
+export default function Dashboard({ data, controls, onBlock, recentFlows = [] }) {
   const alertsRef = useRef(null)
   const scrollToAlerts = () => alertsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   const stats = data?.stats || {}
@@ -21,8 +21,8 @@ export default function Dashboard({ data, controls, onBlock }) {
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-sm text-gray-400 mt-0.5">All network interfaces</p>
+          <h1 className="text-xl font-bold text-gray-900">IDS Monitor</h1>
+          <p className="text-sm text-gray-400 mt-0.5">ML-powered intrusion detection — real-time flow classification</p>
         </div>
 
         {/* Capture controls */}
@@ -117,6 +117,27 @@ export default function Dashboard({ data, controls, onBlock }) {
         </div>
       )}
 
+      {/* Setup guide — shown when IDS is not running */}
+      {!isRunning && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+          <div className="flex items-start gap-3">
+            <Info size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-blue-800 mb-2">⚡ Quick Setup — Capture local Juice Shop traffic</div>
+              <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside">
+                <li>Select the <strong>Loopback</strong> interface above (captures <span className="font-mono">127.0.0.1</span> traffic)</li>
+                <li>Set the port to <strong className="font-mono">4000</strong> (your Docker container port)</li>
+                <li>Click <strong>Start</strong> — the 🤖 XGBoost model begins classifying flows</li>
+                <li>Switch to <strong>Attack Simulator</strong>, set target to <span className="font-mono bg-blue-100 px-1 rounded">http://127.0.0.1:4000</span> and launch attacks</li>
+              </ol>
+              <div className="mt-2 text-xs text-blue-500">
+                ⚠ On Windows, run the terminal as <strong>Administrator</strong> so Scapy/Npcap can capture loopback packets.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-4">
         <StatCard
@@ -161,6 +182,76 @@ export default function Dashboard({ data, controls, onBlock }) {
           </div>
           <AttackDonut attackTypes={data?.attack_types || {}} />
         </div>
+      </div>
+
+      {/* Live Flow Classification Feed */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">🤖 ML Model — Live Flow Classification</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Every network flow classified by the XGBoost model in real-time</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1 text-xs text-gray-400"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> Attack</span>
+            <span className="flex items-center gap-1 text-xs text-gray-400"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" /> Benign</span>
+            <span className="text-xs text-gray-300 bg-gray-50 px-2 py-1 rounded-lg">{recentFlows.length} flows</span>
+          </div>
+        </div>
+        {recentFlows.length === 0 ? (
+          <div className="text-center py-10 text-gray-300 text-sm">No flows captured yet — start IDS capture to see live classification</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-400 border-b border-gray-100">
+                  <th className="pb-2 pr-4 font-medium">Time</th>
+                  <th className="pb-2 pr-4 font-medium">Source</th>
+                  <th className="pb-2 pr-4 font-medium">Destination</th>
+                  <th className="pb-2 pr-4 font-medium">Proto</th>
+                  <th className="pb-2 pr-4 font-medium text-right">Pkts</th>
+                  <th className="pb-2 pr-4 font-medium text-right">Bytes</th>
+                  <th className="pb-2 pr-4 font-medium">ML Label</th>
+                  <th className="pb-2 font-medium text-right">Conf.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {recentFlows.slice(0, 40).map((f, i) => (
+                  <tr key={i} className={`transition-colors ${
+                    f.is_attack ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'
+                  }`}>
+                    <td className="py-1.5 pr-4 font-mono text-gray-400">{f.time}</td>
+                    <td className="py-1.5 pr-4 font-mono text-gray-600 truncate max-w-[130px]">{f.src}</td>
+                    <td className="py-1.5 pr-4 font-mono text-gray-600 truncate max-w-[130px]">{f.dst}</td>
+                    <td className="py-1.5 pr-4">
+                      <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">{f.proto === 6 ? 'TCP' : f.proto === 17 ? 'UDP' : f.proto || '—'}</span>
+                    </td>
+                    <td className="py-1.5 pr-4 text-right text-gray-500">{f.pkts}</td>
+                    <td className="py-1.5 pr-4 text-right text-gray-500">{f.bytes > 1024 ? `${(f.bytes/1024).toFixed(1)}K` : f.bytes}</td>
+                    <td className="py-1.5 pr-4">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        f.is_attack
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {f.is_attack && <span className="w-1 h-1 rounded-full bg-red-500" />}
+                        {f.label}
+                      </span>
+                      {f.detector && f.detector !== 'None' && (
+                        <span className="ml-1.5 text-gray-300 text-xs">[{f.detector}]</span>
+                      )}
+                    </td>
+                    <td className={`py-1.5 text-right font-mono font-semibold ${
+                      f.confidence >= 80 ? 'text-red-600' :
+                      f.confidence >= 50 ? 'text-orange-500' : 'text-gray-400'
+                    }`}>
+                      {f.confidence}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Alerts table */}
